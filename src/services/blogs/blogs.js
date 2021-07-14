@@ -4,6 +4,9 @@ import createError from "http-errors";
 import striptags from "striptags";
 import axios from "axios";
 import { pipeline } from "stream";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary"
+import { CloudinaryStorage } from "multer-storage-cloudinary"
 import { generatePDFReadableStream, stream2Buffer } from "../../lib/pdf/index.js";
 
 const blogsRouter = express.Router();
@@ -92,6 +95,41 @@ blogsRouter
       next(error);
     }
   });
+
+  const cloudinaryStorage = new CloudinaryStorage({
+    cloudinary,
+    params:{
+    folder:"blogs"
+    }
+})
+
+const uploadOnCloudinary = multer({ storage: cloudinaryStorage}).single("cover")
+
+blogsRouter.route("/:blogId/cover")
+.post( uploadOnCloudinary, async (req, res, next) => {
+    try {
+        /* let { category, title, cover, read_time_value, read_time_unit, content } = req.body; */
+        const blogId = req.params.blogId
+        const newCover = { cover: req.file.path }
+        const url = newCover.cover
+        const query = `SELECT * FROM blog WHERE id=${blogId}`
+        const data = await db.query(query)
+        const blog = data.rows[0]
+        console.log(url);
+        if(blog){
+            blog.cover = url
+           /*  const fields = Object.keys(req.body).map(key => `${key} = '${req.body[key]}'`).join(', ') */
+            const postQuery = `UPDATE blog SET cover = '${url}' WHERE id=${blogId} RETURNING *`
+            console.log(postQuery);
+        /*     const postQuery = `INSERT INTO blog (cover ) VALUES ('${req.body.cover}') RETURNING*`; */
+            const coverData = await db.query(postQuery);
+            res.send(coverData.rows[0]);
+        } 
+    } catch (error) {
+        console.log(error);
+        next(error)
+    }
+})
 
 blogsRouter.route("/:blogId/pdf")
 .get( async (req, res, next) => {
