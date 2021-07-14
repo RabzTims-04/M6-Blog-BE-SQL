@@ -2,6 +2,9 @@ import express from "express";
 import db from "../../utils/db/index.js";
 import createError from "http-errors";
 import striptags from "striptags";
+import axios from "axios";
+import { pipeline } from "stream";
+import { generatePDFReadableStream, stream2Buffer } from "../../lib/pdf/index.js";
 
 const blogsRouter = express.Router();
 
@@ -89,5 +92,44 @@ blogsRouter
       next(error);
     }
   });
+
+blogsRouter.route("/:blogId/pdf")
+.get( async (req, res, next) => {
+    try {
+        const blogId = req.params.blogId
+        const query = `SELECT * FROM blog WHERE id=${blogId}`
+        const data = await db.query(query)
+        const blog = data.rows[0]
+        console.log(blog);
+        if(blog){
+            const authorQuery = `SELECT * FROM author WHERE id=${blog.author}`
+            const authorData = await db.query(authorQuery)
+            const authorObj = authorData.rows[0]
+            console.log(authorObj);
+            console.log(blog.cover);
+            const response = await axios.get(blog.cover, {
+                responseType: 'arraybuffer'
+            })
+            const mediaPath = blog.cover.split('/')
+            const filename = mediaPath[mediaPath.length - 1]
+            const [ id, extension ] = filename.split('.')
+            const base64 = Buffer.from(response.data).toString('base64')
+            const base64Image = `data:image/${extension};base64,${base64}`
+            const source = generatePDFReadableStream(blog, base64Image, authorObj)
+            const destination = res
+            pipeline(source, destination, err => {
+                if(err){
+                  next(err)
+                }
+              })
+        }
+        else {
+            next(createError(404, `blog with id: ${blogId} not found`));
+          }
+    } catch (error) {
+        console.log(error);
+        next(error)
+    }
+})
 
 export default blogsRouter;
